@@ -1,0 +1,309 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+
+<head>
+    <title>geo:key</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+    <meta name="author" content="Jaime Olivares" />
+
+    <style>
+    @font-face 
+    {    
+        font-family: SourceProLt;
+        src: url('SourceSansPro-Light.eot');
+        src: local('Source Sans Pro Light'), url('SourceSansPro-Light.woff') format('woff')
+    } 
+    body 
+    {
+        text-align:center;
+        padding:0px;
+        font-family: SourceProLt;
+        font-size: 14pt;
+    }
+    h1
+    {
+        font-size: 16pt;
+        font-variant:small-caps;
+        margin-top:10px;
+        margin-bottom:0px; 
+        text-align:left;
+    }
+    table, th, td
+    {
+        border: 0px;
+        font-family: SourceProLt;
+        font-size: 14pt;
+        text-align: left;
+        padding: 8px;
+        border-collapse: collapse;
+    }
+    table
+    {
+        margin:10px;
+        margin-bottom:10px;
+    }
+    input
+    {
+        font-family: SourceProLt;
+        font-size: 12pt;        
+    }
+    button
+    {
+        background:dodgerblue;
+        border:0px;
+        font-family: SourceProLt;
+        font-weight: bold;
+        color: white;
+        outline: none;
+        height:25px;
+        width: 70px;
+        margin:0px;
+    }
+    </style>
+<script>
+
+    //=============================================================
+    function doEncode() {
+        var latitude;
+        var longitude;
+        var useDecimal;
+
+        var y = document.getElementById("lat").value;
+        latitude = parseFloat(y);
+        if (latitude < -90 || latitude > 90) {
+            alert("Latitude value should be between -90 and 90");
+            return;
+        }
+
+        var x = document.getElementById("lon").value;
+        longitude = parseFloat(x);
+        if (longitude < -180 || longitude > 180) {
+            alert("Longitude value should be between -180 and 180");
+            return;
+        }
+
+        useDecimal = document.getElementById("useDecimal").checked;
+
+        var gk = convertToGeoKey(latitude, longitude, useDecimal);
+        document.getElementById("encoded").value = gk;
+
+        var result = convertFromGeoKey(gk);
+        var error = distance(latitude, longitude, result.latitude, result.longitude);
+        document.getElementById("distError").value = error.toFixed(1) + " m";         
+    }
+
+    //=============================================================
+    function doDecode() {
+        var gk = document.getElementById("geokey").value;
+
+        var ll = convertFromGeoKey(gk);
+
+        if (ll == null) {
+            alert("Invalid geo:key value");
+            return;
+        }
+
+        var result = Math.abs(ll.latitude).toFixed(6) + (ll.latitude < 0 ? " S " : " N ")
+            + Math.abs(ll.longitude).toFixed(6) + (ll.longitude < 0 ? " W" : " E");
+
+        document.getElementById("geodesic").value = result;
+    }
+
+    //=============================================================
+    function convertToGeoKey(latitude, longitude, useDecimal) {
+        if (typeof latitude != 'number' || typeof longitude != 'number') {
+            return null;
+        }
+
+        var geoKey = encode34(latitude + 90.0, useDecimal);
+
+        geoKey += (longitude < 0 ? "-" : "+")
+
+        var temp = encode34(Math.abs(longitude), useDecimal);
+        geoKey += temp;
+
+        return geoKey;
+    }
+
+    //=============================================================
+    function convertFromGeoKey(geoKey) {
+        geoKey = geoKey.toUpperCase().replace("I", "1").replace("O", "0");
+
+        var patt = /([A-HJ-NP-Z0-9]{4}[+-][A-HJ-NP-Z0-9]{4})|([A-HJ-NP-Z0-9]{4}\.[0-9][+-][A-HJ-NP-Z0-9]{4}\.[0-9])/g;
+        if (!patt.test(geoKey)) {
+            return null;
+        }
+        var useDecimal = geoKey.indexOf(".") > 0;
+
+        var decimal1 = null;
+        var decimal2 = null;
+
+        if (useDecimal) {
+            decimal1 = geoKey.charAt(5);
+            decimal2 = geoKey.charAt(12);
+            geoKey = geoKey.substring(0, 4) + geoKey.substring(6, 11);
+        }
+
+        var latitude2 = geoKey.substring(0, 4);
+        var lat = decode34(latitude2, decimal1) - 90.0;
+
+        var longitude2 = geoKey.substring(5);
+        var lon = decode34(longitude2, decimal2) * (geoKey.indexOf("-") >= 0 ? -1 : 1);
+
+        return { latitude : lat, longitude : lon};
+    }
+
+    //=============================================================
+    function encode34(value, useDecimal) {
+        value = Math.abs(value * 7200);
+        var code34;
+        var result = "";
+
+        // Handling of rounding and decimal point
+        if (useDecimal) {
+            var temp = value.toFixed(1);
+            var decimal = temp.charAt(temp.length - 1);
+            value = parseInt(temp);
+        }
+        else
+            value = Math.round(value);
+
+        // Encoding with base-34
+        while (value != 0) {
+            var digit = value % 34;
+
+            //Converting the output to number or letter
+            if (digit < 10)
+                code34 = String(digit);
+            else if (digit < 18)
+                code34 = String.fromCharCode(digit - 10 + 'A'.charCodeAt(0));
+            else if (digit < 23)
+                code34 = String.fromCharCode(digit - 18 + 'J'.charCodeAt(0));
+            else
+                code34 = String.fromCharCode(digit - 23 + 'P'.charCodeAt(0));
+
+            result = code34 + result;
+            value = (value - digit) / 34;
+            value = Math.floor(value);
+        }
+        if (useDecimal)
+            result += "." + decimal;
+
+        return result;
+    }
+
+    //=============================================================
+    function decode34(value, decimalNumber) {
+        var decoded = 0.0;
+
+        //Encode with base-34
+        for (var i = 0; i < 4; i++) {
+            var digit = 0;
+            var code34 = value.charCodeAt(i);
+
+            //Converting the output to number or letter
+            if (code34 < 'A'.charCodeAt(0))
+                digit = code34 - '0'.charCodeAt(0) + 0;
+            else if (code34 < 'J'.charCodeAt(0))
+                digit = code34 - 'A'.charCodeAt(0) + 10;
+            else if (code34 < 'P'.charCodeAt(0))
+                digit = code34 - 'J'.charCodeAt(0) + 18;
+            else
+                digit = code34 - 'P'.charCodeAt(0) + 23;
+
+            decoded += digit * Math.pow(34, 3 - i);
+        }
+        if (decimalNumber != null) {
+            var temp = "0." + decimalNumber;
+            decoded += parseFloat(temp);
+        }
+
+        return decoded / 7200.0;
+    }
+
+    //=============================================================
+    function distance(lat1, lon1, lat2, lon2) {
+        var R = 6371; // km
+        var dLat = (lat2 - lat1) / 57.295779513082321;
+        var dLon = (lon2 - lon1) / 57.295779513082321;
+        var lat1 = lat1 / 57.295779513082321;
+        var lat2 = lat2 / 57.295779513082321;
+
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
+        var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c * 1000;
+    }
+
+    //=============================================================
+    function loadPaper() {
+        var xmlHttp = null
+        if (window.XMLHttpRequest) {
+            xmlHttp = new XMLHttpRequest()
+        }
+        else if (window.ActiveXObject) {
+            xmlHttp = new ActiveXObject("Microsoft.XMLHTTP")
+        }
+        if (xmlHttp == null) {
+            return;
+        }
+
+        xmlHttp.open("GET", "paper.txt", false);
+        xmlHttp.send(null);
+        document.body.innerHTML = xmlHttp.responseText;
+    }
+
+    //=============================================================
+    function processUrl() {
+        var pos = document.URL.indexOf("?");
+        if (pos < 0) {
+            loadPaper();
+            return;
+        }
+
+        var gk = document.URL.substring(pos + 1);
+        var result = convertFromGeoKey(gk);
+        if (result == null) {
+            document.write("Invalid geo:key");
+            return;
+        }
+
+        var url = "http://maps.google.com/maps?q=" + result.latitude.toFixed(6) + "," + result.longitude.toFixed(6);
+        window.location = url;
+    }
+    </script>
+</head>
+
+<body>
+<h1>geo:key converter demo</h1>
+<table>
+    <tr>
+        <td>Latitude:</td>
+        <td><input id="lat" style="width: 120px;" type="text" /></td>
+        <td style="font-size:70%">Positive=North</td>
+        <td><input id="useDecimal" type="checkbox" /> Use decimal digit</td>
+    </tr>
+    <tr>
+        <td>Longitude:</td>
+        <td><input id="lon" style="width: 120px;" type="text" /></td>
+        <td style="font-size:70%">Positive=East</td>
+        <td><button onclick="doEncode();" >Encode</button></td>
+    </tr>
+    <tr>
+        <td>Result:&nbsp;</td>
+        <td><input id="encoded" style="width: 120px;" readonly="readonly" type="text" /></td>
+        <td colspan="2">Error: <input id="distError" style="width: 80px;" readonly="readonly" type="text" /></td>
+    </tr>
+    <tr><td>&nbsp</td></tr>
+    <tr>
+        <td>geo:key</td>
+        <td><input id="geokey" style="width: 120px;" type="text" /></td>
+        <td><button onclick="doDecode();">Decode</button></td>
+    </tr>
+    <tr>
+        <td>Result:&nbsp;</td>
+        <td colspan="2"><input id="geodesic" style="width: 200px;" readonly="readonly" type="text" /></td>
+    </tr>
+</table>
+</body>
+</html>
